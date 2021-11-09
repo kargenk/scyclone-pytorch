@@ -42,7 +42,7 @@ class Generator(nn.Module):
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
         self.input_layer = nn.Sequential(
-            nn.Conv1d(160, 256, kernel_size=1, stride=1),
+            nn.Conv1d(80, 256, kernel_size=1, stride=1),
             nn.LeakyReLU(0.01),
         )
 
@@ -50,7 +50,7 @@ class Generator(nn.Module):
         self.res_layer = nn.Sequential(*blocks)
 
         self.output_layer = nn.Sequential(
-            nn.Conv1d(256, 160, kernel_size=1, stride=1),
+            nn.Conv1d(256, 80, kernel_size=1, stride=1),
             nn.LeakyReLU(0.01),
         )
 
@@ -68,7 +68,7 @@ class Discriminator(nn.Module):
         self.noise_sigma = 0.01
 
         self.input_layer = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv1d(128, 256, kernel_size=1, stride=1)),
+            nn.utils.spectral_norm(nn.Conv1d(80, 256, kernel_size=1, stride=1)),
             nn.LeakyReLU(0.2),
         )
 
@@ -105,8 +105,8 @@ class Scyclone(nn.Module):
         self.weight_identity = 1
 
         # Hinge Lossのオフセット(SNGANは1.0, Scycloneは0.5)
-        # ref: https://arxiv.org/abs/2005.03334
-        self.offset = 0.5
+        # ref: https://arxiv.org/abs/2005.03334 eq(2) m
+        self.hinge_offset_for_D = 0.5
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.G_A2B(x)
@@ -131,11 +131,11 @@ class Scyclone(nn.Module):
 
         # Adversarial Loss (Hinge Loss)
         fake_B = self.G_A2B(real_A)
-        pred_fake_B = self.D_B(torch.narrow(fake_B, 1, 16, 128))
+        pred_fake_B = self.D_B(torch.narrow(fake_B, 2, 16, 128))
         loss_adv_G_A2B = torch.mean(F.relu(-1.0 * pred_fake_B))
 
         fake_A = self.G_B2A(real_B)
-        pred_fake_A = self.D_A(torch.narrow(fake_A, 1, 16, 128))
+        pred_fake_A = self.D_A(torch.narrow(fake_A, 2, 16, 128))
         loss_adv_G_B2A = torch.mean(F.relu(-1.0 * pred_fake_A))
 
         # Cycle Consistency Loss (L1 Loss)
@@ -171,7 +171,7 @@ class Scyclone(nn.Module):
             'Loss/Id/B2B': loss_identity_B,
         }
 
-        out = {'Loss': loss_G, 'log': log}
+        out = {'loss': loss_G, 'log': log}
 
         return out
 
@@ -188,18 +188,52 @@ class Scyclone(nn.Module):
         real_A, real_B = batch
 
         # Adversarial Loss (Hinge Loss)
+        m = self.hinge_offset_for_D
         ## D_A
         ### Real Loss
-        pred_A_real = self.D_A(torch.narrow(real_A, 1, 16, 128))
-        loss_D_A_real = torch.mean(F.relu())
+        pred_A_real = self.D_A(torch.narrow(real_A, 2, 16, 128))
+        loss_D_A_real = torch.mean(F.relu(m - pred_A_real))
+        ### Fake Loss
+        fake_A = self.G_B2A(real_B)
+        pred_A_fake = self.D_A(torch.narrow(fake_A.detach(), 2, 16, 128))
+        loss_D_A_fake = torch.mean(F.relu(m + pred_A_fake))
+        ### D_A Total Loss
+        loss_D_A = loss_D_A_real + loss_D_A_fake
 
+        ## D_B
+        ### Real Loss
+        pred_B_real = self.D_B(torch.narrow(real_B, 2, 16, 128))
+        loss_D_B_real = torch.mean(F.relu(m - pred_B_real))
+        ### Fake Loss
+        fake_B = self.G_A2B(real_A)
+        pred_B_fake = self.D_B(torch.narrow(fake_B.detach(), 2, 16, 128))
+        loss_D_B_fake = torch.mean(F.relu(m + pred_B_fake))
+        ### Total Loss
+        loss_D_B = loss_D_B_real + loss_D_B_fake
+
+        # Total Loss
+        loss_D = loss_D_A + loss_D_B
+
+        log = {
+            'Loss/D_total': loss_D,
+            'Loss/D_A': loss_D_A,
+            'Loss/D_B': loss_D_B,
+        }
+
+        out = {'loss': loss_D, 'log': log}
+
+        return out
+
+
+    def configure_optimizers(self) -> None:
+        pass
 
 
 if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     # Generator
-    dummy_input = torch.randn(1, 160, 80).to(device)
+    dummy_input = torch.randn(1, 80, 160).to(device)
     G = Generator(num_resblocks=7).to(device)
     g_output = G(dummy_input)
     print(f'G input:  {dummy_input.shape}')
@@ -207,7 +241,7 @@ if __name__ == '__main__':
 
     # Discriminator
     D = Discriminator(num_resblocks=6).to(device)
-    d_input = torch.narrow(g_output, 1, 16, 128)  # paddingの影響を回避するため，両橋16フレームずつカットしてDiscriminatorに渡す
+    d_input = torch.narrow(g_output, 2, 16, 128)  # paddingの影響を回避するため，両橋16フレームずつカットしてDiscriminatorに渡す
     d_output = D(d_input)
     print(f'D input:  {d_input.shape}')
     print(f'D output: {d_output.shape}')
