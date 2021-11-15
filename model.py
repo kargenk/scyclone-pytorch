@@ -1,8 +1,11 @@
+import itertools
 from typing import Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.optim import Adam
+from torch.optim.lr_scheduler import StepLR
 from torchsummary import summary
 
 
@@ -107,6 +110,9 @@ class Scyclone(nn.Module):
         # Hinge Lossのオフセット(SNGANは1.0, Scycloneは0.5)
         # ref: https://arxiv.org/abs/2005.03334 eq(2) m
         self.hinge_offset_for_D = 0.5
+
+        # 学習率
+        self.learning_rate = 2.0 * 1e-4
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.G_A2B(x)
@@ -224,9 +230,33 @@ class Scyclone(nn.Module):
 
         return out
 
-
     def configure_optimizers(self) -> None:
-        pass
+        decay_rate = 0.1
+        decay_iter = 100000
+
+        # Generatorの最適化関数とスケジューラ
+        optim_G = Adam(
+            itertools.chain(self.G_A2B.parameters(), self.G_B2A.parameters()),
+            lr=self.learning_rate,
+            betas=(0.5, 0.999),
+        )
+        scheduler_G = {
+            'scheduler': StepLR(optim_G, decay_iter, decay_rate),
+            'interval': 'step',
+        }
+
+        # Discriminatorの最適化関数とスケジューラ
+        optim_D = Adam(
+            itertools.chain(self.D_A.parameters(), self.D_B.parameters()),
+            lr=self.learning_rate,
+            betas=(0.5, 0.999),
+        )
+        scheduler_D = {
+            'scheduler': StepLR(optim_D, decay_iter, decay_rate),
+            'interval': 'step',
+        }
+
+        return [optim_G, optim_D], [scheduler_G, scheduler_D]
 
 
 if __name__ == '__main__':
