@@ -1,4 +1,5 @@
 import itertools
+import os
 from typing import Tuple
 
 import torch
@@ -96,12 +97,12 @@ class Discriminator(nn.Module):
 class Scyclone(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-        # モデル
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        self.G_A2B = Generator(num_resblocks=7)
-        self.G_B2A = Generator(num_resblocks=7)
-        self.D_A = Discriminator(num_resblocks=6)
-        self.D_B = Discriminator(num_resblocks=6)
+        # モデル
+        self.G_A2B = Generator(num_resblocks=7).to(self.device)
+        self.G_B2A = Generator(num_resblocks=7).to(self.device)
+        self.D_A = Discriminator(num_resblocks=6).to(self.device)
+        self.D_B = Discriminator(num_resblocks=6).to(self.device)
 
         # 損失の係数
         self.weight_cycle = 10
@@ -117,11 +118,28 @@ class Scyclone(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.G_A2B(x)
 
-    def save(self, save_path: str) -> None:
-        torch.save(self.state_dict(), save_path)
+    def save_models(self, i: int, save_dir: str) -> None:
+        G_A2B_path = os.path.join(save_dir, f'{i + 1}-G_A2B.pt')
+        G_B2A_path = os.path.join(save_dir, f'{i + 1}-G_B2A.pt')
+        D_A_path = os.path.join(save_dir, f'{i + 1}-D_A.pt')
+        D_B_path = os.path.join(save_dir, f'{i + 1}-D_B.pt')
+        torch.save(self.G_A2B.state_dict(), G_A2B_path)
+        torch.save(self.G_B2A.state_dict(), G_B2A_path)
+        torch.save(self.D_A.state_dict(), D_A_path)
+        torch.save(self.D_B.state_dict(), D_B_path)
+        print(f'Save model checkpoints into {save_dir}...')
 
-    def load(self, weights_path: str) -> None:
-        self.load_state_dict(torch.load(weights_path))
+    def restore_models(self, i: int, weights_dir: str) -> None:
+        print(f'Loading the trained models from step {i} ...')
+        G_A2B_path = os.path.join(weights_dir, f'{i + 1}-G_A2B.pt')
+        G_B2A_path = os.path.join(weights_dir, f'{i + 1}-G_B2A.pt')
+        D_A_path = os.path.join(weights_dir, f'{i + 1}-D_A.pt')
+        D_B_path = os.path.join(weights_dir, f'{i + 1}-D_B.pt')
+        self.G_A2B.load_state_dict(torch.load(G_A2B_path))
+        self.G_B2A.load_state_dict(torch.load(G_B2A_path))
+        self.D_A.load_state_dict(torch.load(D_A_path))
+        self.D_B.load_state_dict(torch.load(D_B_path))
+        print('Loaded all models.')
 
     def train_g(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> dict:
         """
@@ -276,8 +294,14 @@ if __name__ == '__main__':
     print(f'D input:  {d_input.shape}')
     print(f'D output: {d_output.shape}')
 
+    # Scyclone
+    S = Scyclone()
+    summary(S, input_size=(80, 160))
+    # S.save_models(0, 'models')
+    # S.restore_models(0, 'models')
+
     # # モデルの概要
     # print('Generator:\n')
-    # summary(G, input_size=(160, 80))
+    # summary(G, input_size=(80, 160))
     # print('Discriminator:\n')
-    # summary(D, input_size=(128, 80))
+    # summary(D, input_size=(80, 128))
