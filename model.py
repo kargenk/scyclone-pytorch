@@ -258,10 +258,7 @@ class Scyclone(nn.Module):
             lr=self.learning_rate,
             betas=(0.5, 0.999),
         )
-        scheduler_G = {
-            'scheduler': StepLR(optim_G, decay_iter, decay_rate),
-            'interval': 'step',
-        }
+        scheduler_G = StepLR(optim_G, decay_iter, decay_rate)
 
         # Discriminatorの最適化関数とスケジューラ
         optim_D = Adam(
@@ -269,10 +266,7 @@ class Scyclone(nn.Module):
             lr=self.learning_rate,
             betas=(0.5, 0.999),
         )
-        scheduler_D = {
-            'scheduler': StepLR(optim_D, decay_iter, decay_rate),
-            'interval': 'step',
-        }
+        scheduler_D = StepLR(optim_D, decay_iter, decay_rate)
 
         return [optim_G, optim_D], [scheduler_G, scheduler_D]
 
