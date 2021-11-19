@@ -119,15 +119,22 @@ class Scyclone(nn.Module):
         return self.G_A2B(x)
 
     def save_models(self, i: int, save_dir: str) -> None:
-        G_A2B_path = os.path.join(save_dir, f'{i + 1}-G_A2B.pt')
-        G_B2A_path = os.path.join(save_dir, f'{i + 1}-G_B2A.pt')
-        D_A_path = os.path.join(save_dir, f'{i + 1}-D_A.pt')
-        D_B_path = os.path.join(save_dir, f'{i + 1}-D_B.pt')
+        G_A2B_path = os.path.join(save_dir, f'{i}-G_A2B.pt')
+        G_B2A_path = os.path.join(save_dir, f'{i}-G_B2A.pt')
+        D_A_path = os.path.join(save_dir, f'{i}-D_A.pt')
+        D_B_path = os.path.join(save_dir, f'{i}-D_B.pt')
         torch.save(self.G_A2B.state_dict(), G_A2B_path)
         torch.save(self.G_B2A.state_dict(), G_B2A_path)
         torch.save(self.D_A.state_dict(), D_A_path)
         torch.save(self.D_B.state_dict(), D_B_path)
         print(f'Save model checkpoints into {save_dir}...')
+
+    def save_optims(self, i: int, save_dir: str) -> None:
+        optim_G_path = os.path.join(save_dir, f'{i}-optim_G.pt')
+        optim_D_path = os.path.join(save_dir, f'{i}-optim_D.pt')
+        torch.save(self.optim_G.state_dict(), optim_G_path)
+        torch.save(self.optim_D.state_dict(), optim_D_path)
+        print(f'Save optimizer checkpoints into {save_dir}...')
 
     def restore_models(self, i: int, weights_dir: str) -> None:
         print(f'Loading the trained models from step {i} ...')
@@ -186,13 +193,13 @@ class Scyclone(nn.Module):
         )
 
         log = {
-            'Loss/G_total': loss_G,
-            'Loss/Adv/G_A2B': loss_adv_G_A2B,
-            'Loss/Adv/G_B2A': loss_adv_G_B2A,
-            'Loss/Cyc/A2B2A': loss_cycle_ABA,
-            'Loss/Cyc/B2A2B': loss_cycle_BAB,
-            'Loss/Id/A2A': loss_identity_A,
-            'Loss/Id/B2B': loss_identity_B,
+            'Generator/Loss/G_total': loss_G,
+            'Generator/Loss/Adv/G_A2B': loss_adv_G_A2B,
+            'Generator/Loss/Adv/G_B2A': loss_adv_G_B2A,
+            'Generator/Loss/Cyc/A2B2A': loss_cycle_ABA,
+            'Generator/Loss/Cyc/B2A2B': loss_cycle_BAB,
+            'Generator/Loss/Id/A2A': loss_identity_A,
+            'Generator/Loss/Id/B2B': loss_identity_B,
         }
 
         out = {'loss': loss_G, 'log': log}
@@ -239,9 +246,9 @@ class Scyclone(nn.Module):
         loss_D = loss_D_A + loss_D_B
 
         log = {
-            'Loss/D_total': loss_D,
-            'Loss/D_A': loss_D_A,
-            'Loss/D_B': loss_D_B,
+            'Discriminator/Loss/D_total': loss_D,
+            'Discriminator/Loss/D_A': loss_D_A,
+            'Discriminator/Loss/D_B': loss_D_B,
         }
 
         out = {'loss': loss_D, 'log': log}
@@ -250,25 +257,23 @@ class Scyclone(nn.Module):
 
     def configure_optimizers(self) -> None:
         decay_rate = 0.1
-        decay_iter = 100000
+        decay_epoch = 10000
 
         # Generatorの最適化関数とスケジューラ
-        optim_G = Adam(
+        self.optim_G = Adam(
             itertools.chain(self.G_A2B.parameters(), self.G_B2A.parameters()),
             lr=self.learning_rate,
             betas=(0.5, 0.999),
         )
-        scheduler_G = StepLR(optim_G, decay_iter, decay_rate)
+        self.scheduler_G = StepLR(self.optim_G, decay_epoch, decay_rate)
 
         # Discriminatorの最適化関数とスケジューラ
-        optim_D = Adam(
+        self.optim_D = Adam(
             itertools.chain(self.D_A.parameters(), self.D_B.parameters()),
             lr=self.learning_rate,
             betas=(0.5, 0.999),
         )
-        scheduler_D = StepLR(optim_D, decay_iter, decay_rate)
-
-        return [optim_G, optim_D], [scheduler_G, scheduler_D]
+        self.scheduler_D = StepLR(self.optim_D, decay_epoch, decay_rate)
 
 
 if __name__ == '__main__':
