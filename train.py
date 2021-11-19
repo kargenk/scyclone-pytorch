@@ -1,40 +1,27 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from dataset import LogMelspDataset
+from logger import Logger
 from model import Scyclone
 from utils import worker_init_fn
 
 
-def train_model(model, train_loader, test_loader, device):
-    # Train loop ----------------------------
-    model.train()
-    train_batch_loss = 0
-    for data, label in train_loader:
-        data, label = data.to(device), label.to(device)
-        optimizer.zero_grad()
-        output = model(data)
-        loss = criterion(output, label)
-        loss.backward()
-        optimizer.step()
-        train_batch_loss.append(loss.item())
+def log(logger: object, log_dict: dict, i: int):
+    """
+    Tensor Boardに各損失と訓練状況のログを吐き出す．
 
-    # Test(val) loop ----------------------------
-    model.eval()
-    test_batch_loss = 0
-    with torch.inference_mode():
-        for data, label in test_loader:
-            data, label = data.to(device), label.to(device)
-            output = model(data)
-            loss = criterion(output, label).item()
-            test_batch_loss.append(loss.item())
-
-    return model, np.mean(train_batch_loss), np.mean(test_batch_loss)
+    Args:
+        logger (object): TensorBoardの自作ラッパクラス
+        log_dict (dict): 損失関数の辞書
+        i (int): エポック数
+    """
+    # 損失関数のログ
+    for tag, value in log_dict.items():
+        logger.scalar_summary(tag, value, i)
 
 
 if __name__ == '__main__':
@@ -57,23 +44,39 @@ if __name__ == '__main__':
     print(iter(train_loader).next()[1].shape)
     print(len(train_loader))
 
-    # モデル，最適化アルゴリズム，スケジューラの設定
+    # モデル，最適化アルゴリズム，スケジューラ，TensorBoardの設定
     model = Scyclone()
-    optims, schedulers = model.configure_optimizers()
-    optim_G, optim_D = optims
-    scheduler_G, scheduler_D = schedulers
+    model.configure_optimizers()
+    logger = Logger('outputs/logs')
 
     # 訓練の実行
-    epoch = 1
-    for epoch in tqdm(range(epoch)):
+    epoch = 100000
+    for epoch in tqdm(range(1, epoch + 1)):
         for batch in train_loader:
-            # TODO: optimizerの初期化
-            # TODO: 各optimizerを進める
-            # TODO: 各schedulerを進める
-            # TODO: 各損失をTensorBoaedに書き出し
             src, trg = batch
             batch = (src.to(device), trg.to(device))
+
+            # Discriminatorの訓練
+            model.optim_D.zero_grad()
             out_d_dict = model.train_d(batch)
+            out_d_dict['loss'].backward()
+            model.optim_D.step()
+            # print(f'epoch:{epoch}, d_lr:{scheduler_D.get_last_lr()[0]}')
+            out_d_dict['log']['Discriminator/LearningRate'] = model.scheduler_D.get_last_lr()[0]
+            model.scheduler_D.step()
+            log(logger, out_d_dict['log'], epoch)
+
+            # Generatorの訓練
+            model.optim_G.zero_grad()
             out_g_dict = model.train_g(batch)
-            print(out_d_dict)
-            print(out_g_dict)
+            out_g_dict['loss'].backward()
+            model.optim_G.step()
+            # print(f'epoch:{epoch}, g_lr:{scheduler_G.get_last_lr()[0]}')
+            out_g_dict['log']['Generator/LearningRate'] = model.scheduler_G.get_last_lr()[0]
+            model.scheduler_G.step()
+            log(logger, out_g_dict['log'], epoch)
+
+            # モデルとOptimizerの保存
+            if epoch % 10000 == 0:
+                model.save_models(epoch, 'models')
+                model.save_optims(epoch, 'optims')
