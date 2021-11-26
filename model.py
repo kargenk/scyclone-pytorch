@@ -119,6 +119,8 @@ class Scyclone(nn.Module):
         return self.G_A2B(x)
 
     def save_models(self, i: int, save_dir: str) -> None:
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
         G_A2B_path = os.path.join(save_dir, f'{i}-G_A2B.pt')
         G_B2A_path = os.path.join(save_dir, f'{i}-G_B2A.pt')
         D_A_path = os.path.join(save_dir, f'{i}-D_A.pt')
@@ -130,6 +132,8 @@ class Scyclone(nn.Module):
         print(f'Save model checkpoints into {save_dir}...')
 
     def save_optims(self, i: int, save_dir: str) -> None:
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
         optim_G_path = os.path.join(save_dir, f'{i}-optim_G.pt')
         optim_D_path = os.path.join(save_dir, f'{i}-optim_D.pt')
         torch.save(self.optim_G.state_dict(), optim_G_path)
@@ -138,10 +142,10 @@ class Scyclone(nn.Module):
 
     def restore_models(self, i: int, weights_dir: str) -> None:
         print(f'Loading the trained models from step {i} ...')
-        G_A2B_path = os.path.join(weights_dir, f'{i + 1}-G_A2B.pt')
-        G_B2A_path = os.path.join(weights_dir, f'{i + 1}-G_B2A.pt')
-        D_A_path = os.path.join(weights_dir, f'{i + 1}-D_A.pt')
-        D_B_path = os.path.join(weights_dir, f'{i + 1}-D_B.pt')
+        G_A2B_path = os.path.join(weights_dir, f'{i}-G_A2B.pt')
+        G_B2A_path = os.path.join(weights_dir, f'{i}-G_B2A.pt')
+        D_A_path = os.path.join(weights_dir, f'{i}-D_A.pt')
+        D_B_path = os.path.join(weights_dir, f'{i}-D_B.pt')
         self.G_A2B.load_state_dict(torch.load(G_A2B_path))
         self.G_B2A.load_state_dict(torch.load(G_B2A_path))
         self.D_A.load_state_dict(torch.load(D_A_path))
@@ -257,7 +261,7 @@ class Scyclone(nn.Module):
 
     def configure_optimizers(self) -> None:
         decay_rate = 0.1
-        decay_epoch = 10000
+        decay_epoch = 20000
 
         # Generatorの最適化関数とスケジューラ
         self.optim_G = Adam(

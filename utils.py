@@ -5,14 +5,15 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchsummary import summary
 
 
 class Audio2Mel(nn.Module):
     def __init__(
         self,
-        n_fft=256,
-        hop_length=128,
-        win_length=256,
+        n_fft=1024,       # scyclone: 256
+        hop_length=256,   # scyclone: 128
+        win_length=1024,  # scyclone: 256
         sampling_rate=24000,
         n_mel_channels=80,
         mel_fmin=0.0,
@@ -90,7 +91,8 @@ def wav_from_melsp(log_melsp: torch.Tensor) -> torch.Tensor:
         torch.Tensor: [timesteps]の音声信号
     """
     vocoder = torch.hub.load('descriptinc/melgan-neurips', 'load_melgan')
-    audio = vocoder.inverse(log_melsp).squeeze().cpu()
+    # summary(vocoder.mel2wav, input_size=(80, 10))
+    audio = vocoder.inverse(log_melsp).squeeze().cpu().numpy()
 
     return audio
 

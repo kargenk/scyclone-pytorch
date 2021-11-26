@@ -29,7 +29,7 @@ class LogMelspDataset(Dataset):
         src_log_melsp = torch.FloatTensor(src_log_melsp)
         trg_log_melsp = torch.FloatTensor(trg_log_melsp)
 
-        return (src_log_melsp, trg_log_melsp)
+        return src_log_melsp, trg_log_melsp
 
 
 if __name__ == '__main__':
