@@ -28,8 +28,8 @@ if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     # データローダーの作成
-    jvs001_to_jvs015_dataset = LogMelspDataset(source_dir='data/processed_logmel/jvs001',
-                                     target_dir='data/processed_logmel/jvs015')
+    jvs001_to_jvs015_dataset = LogMelspDataset(source_dir='data/processed_logmel_unique_win1024shift256/jvs001',
+                                               target_dir='data/processed_logmel_unique_win1024shift256/jvs015')
     print(f'jvs001 to jvs015: {len(jvs001_to_jvs015_dataset)}')
 
     # データローダーの作成

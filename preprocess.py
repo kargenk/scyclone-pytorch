@@ -108,7 +108,7 @@ def wav_to_melsp_file(dataset: str, sr: int, processed_filepath: str = './data/p
 
 if __name__ == '__main__':
     input_dir = 'data/train_unique'
-    output_dir = 'data/processed_logmel'
+    output_dir = 'data/processed_logmel_unique_win1024shift256'
     dataset_default = 'jvs'
 
     start = datetime.now()
