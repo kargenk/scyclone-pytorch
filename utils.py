@@ -1,11 +1,14 @@
 import random
 
+import librosa
+import librosa.display
 from librosa.filters import mel as librosa_mel_fn
+import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchsummary import summary
 
 
 class Audio2Mel(nn.Module):
@@ -95,6 +98,60 @@ def wav_from_melsp(log_melsp: torch.Tensor) -> torch.Tensor:
     audio = vocoder.inverse(log_melsp).squeeze().cpu().numpy()
 
     return audio
+
+
+def wav_to_log_melsp(wav_path: str, sr: int = 24000) -> torch.Tensor:
+    """
+    対数メルスペクトログラムを返す.
+
+    Args:
+        wav_path (str): wavデータ
+        sr (int) : サンプリング周波数
+
+    Returns:
+        torch.Tensor: 対数メルスペクトログラム[N, Frequency(80), Time]
+    """
+    fft = Audio2Mel()
+
+    wav, sr = librosa.load(wav_path, sr=sr, mono=True, dtype=np.float64)
+    wav, _ = librosa.effects.trim(wav, top_db=15)  # 無音区間のトリミング(閾値=15dB)
+    data_t = torch.from_numpy(wav).float().unsqueeze(0)
+    log_melsp = fft(data_t)
+
+    return log_melsp
+
+
+def time_split(log_melsp: torch.Tensor, frames: int = 160) -> list:
+    """
+    対数メルスペクトログラムを160フレーム毎のテンソルに分割して返す.
+
+    Args:
+        log_melsp (torch.Tensor): 対数メルスペクトログラム[N, Frequency(80), Time]
+        frames (int): フレーム数
+
+    Returns:
+        list: 160フレーム毎に分割した対数メルスペクトログラムのリスト
+    """
+    log_melsp = log_melsp.squeeze()
+    # 160フレームずつに分ける
+    time_splited = []
+    for start_idx in range(0, log_melsp.shape[-1] - frames + 1, frames):
+        one_audio_seg = log_melsp[:, start_idx: start_idx + frames]
+
+        if one_audio_seg.shape[-1] == frames:
+            time_splited.append(one_audio_seg)
+
+    return time_splited
+
+
+def plot_melsp(log_melsp, path: str):
+    plt.figure(figsize=(8, 4))
+    librosa.display.specshow(log_melsp.cpu().squeeze().detach().numpy(),
+                             sr=24000, hop_length=256, x_axis='time', y_axis='linear',
+                             norm=Normalize(vmin=-5, vmax=0))
+    plt.colorbar(format='%+2.0f dB')
+    plt.xlim(0, 5)
+    plt.savefig(f'{path}.png')
 
 
 if __name__ == '__main__':

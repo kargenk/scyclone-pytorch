@@ -1,5 +1,3 @@
-import matplotlib.pyplot as plt
-import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -7,7 +5,7 @@ from tqdm import tqdm
 from dataset import LogMelspDataset
 from logger import Logger
 from model import Scyclone
-from utils import worker_init_fn
+from utils import fix_seed, worker_init_fn
 
 
 def log(logger: object, log_dict: dict, i: int):
@@ -25,6 +23,7 @@ def log(logger: object, log_dict: dict, i: int):
 
 
 if __name__ == '__main__':
+    fix_seed(42)
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     # データローダーの作成
@@ -50,7 +49,7 @@ if __name__ == '__main__':
     logger = Logger('outputs/logs')
 
     # 訓練の実行
-    epoch = 100000
+    epoch = 300000
     for epoch in tqdm(range(1, epoch + 1)):
         for batch in train_loader:
             src, trg = batch
