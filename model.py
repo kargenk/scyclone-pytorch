@@ -260,8 +260,8 @@ class Scyclone(nn.Module):
         return out
 
     def configure_optimizers(self) -> None:
-        decay_rate = 0.1
-        decay_epoch = 20000
+        decay_rate = 0.5
+        decay_epoch = 50000
 
         # Generatorの最適化関数とスケジューラ
         self.optim_G = Adam(
