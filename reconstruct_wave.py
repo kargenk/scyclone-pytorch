@@ -19,30 +19,32 @@ def clipping_power(melsp: torch.Tensor) -> torch.Tensor:
     Returns:
         torch.Tensor: クリッピング後のメルスペクトログラム
     """
-    # クリッピング前
-    plt.figure()
-    sns.distplot(melsp.flatten().detach().cpu().numpy())
-    plt.savefig('result/power_distribution_before.png')
+    # # クリッピング前
+    # plt.figure()
+    # sns.distplot(melsp.flatten().detach().cpu().numpy())
+    # plt.savefig('result/power_distribution_before.png')
 
-    # クリッピング後
-    plt.figure()
+    # # クリッピング後
+    # plt.figure()
     clipped = torch.clamp(melsp, max=1)
-    sns.distplot(clipped.flatten().detach().cpu().numpy())
-    plt.savefig('result/power_distribution_after.png')
+    # sns.distplot(clipped.flatten().detach().cpu().numpy())
+    # plt.savefig('result/power_distribution_after.png')
 
     return clipped
 
 
 if __name__ == '__main__':
-    if not os.path.exists('result'):
-        os.makedirs('result')
+    base_dir = '0201_kiritan-no7_16k'
+    save_dir = os.path.join(base_dir, 'result')
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
 
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    resume_iter = 300000
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+    resume_iter = 130000
+    sr = 24000
 
     # log melspを抽出して160フレーム毎に分割
-    log_melsp = wav_to_log_melsp('data/test_common/jvs001/raw.wav')
-    # log_melsp = wav_to_log_melsp('data/vcc2018/vcc2018_evaluation/VCC2SM1/30001.wav')
+    log_melsp = wav_to_log_melsp('../datasets/kiritan-no7/kiritan/test/47.wav', sr=sr)
     splited = time_split(log_melsp, 160)
 
     # [N, 80, 160]に整形
@@ -50,7 +52,7 @@ if __name__ == '__main__':
 
     # 学習済みモデルの読み込み，log melspを変換
     model = Scyclone()
-    model.restore_models(resume_iter, '1126_jvs001_to_jvs015/models')
+    model.restore_models(resume_iter, os.path.join(base_dir, 'models'))
     output = model(input_tensor)
 
     # バッチ次元をつなげて正しい時間軸に整形
@@ -62,12 +64,11 @@ if __name__ == '__main__':
 
     # 音声の保存
     data = wav_from_melsp(clipped)
-    sf.write(f'result/jvs001_to_jvs015_at{resume_iter}_rec.wav', data, 24000, subtype='PCM_24')
-    # sf.write(f'result/vcc2sm1_to_vcc2sf1_at{resume_iter}_cripped_rec.wav', data, 24000, subtype='PCM_24')
+    sf.write(os.path.join(save_dir, f'kiritan_to_no7_at{resume_iter}_rec.wav'),
+             data, sr, subtype='PCM_24')
 
     # スペクトログラムの保存
-    plot_melsp(log_melsp, path='result/source_log_melsp')  # source
-    log_melsp_trg = wav_to_log_melsp('data/test_common/jvs015/raw.wav')
-    # log_melsp_trg = wav_to_log_melsp('data/vcc2018/vcc2018_evaluation/VCC2SF1/30001.wav')
-    plot_melsp(log_melsp_trg, path='result/target_log_melsp')  # target
-    plot_melsp(clipped, path=f'result/converted_log_melsp_{resume_iter}')  # converted
+    plot_melsp(log_melsp, sr=sr, path=os.path.join(save_dir, 'source_log_melsp'))  # source
+    # log_melsp_trg = wav_to_log_melsp('data/test_common/jvs015/raw.wav')
+    # plot_melsp(log_melsp_trg, sr=24000, path='result/target_log_melsp')  # target
+    plot_melsp(clipped, sr=sr, path=os.path.join(save_dir, f'converted_log_melsp_{resume_iter}'))  # converted

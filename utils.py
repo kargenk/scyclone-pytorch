@@ -111,10 +111,10 @@ def wav_to_log_melsp(wav_path: str, sr: int = 24000) -> torch.Tensor:
     Returns:
         torch.Tensor: 対数メルスペクトログラム[N, Frequency(80), Time]
     """
-    fft = Audio2Mel()
+    fft = Audio2Mel(sampling_rate=sr)
 
     wav, sr = librosa.load(wav_path, sr=sr, mono=True, dtype=np.float64)
-    wav, _ = librosa.effects.trim(wav, top_db=15)  # 無音区間のトリミング(閾値=15dB)
+    wav, _ = librosa.effects.trim(wav, top_db=15)  # 音声ファイルの前後の無音区間のトリミング(閾値=15dB)
     data_t = torch.from_numpy(wav).float().unsqueeze(0)
     log_melsp = fft(data_t)
 
@@ -144,15 +144,26 @@ def time_split(log_melsp: torch.Tensor, frames: int = 160) -> list:
     return time_splited
 
 
-def plot_melsp(log_melsp, path: str):
+def plot_melsp(log_melsp, sr: int, path: str):
     plt.figure(figsize=(8, 4))
     librosa.display.specshow(log_melsp.cpu().squeeze().detach().numpy(),
-                             sr=24000, hop_length=256, x_axis='time', y_axis='linear',
+                             sr=sr, hop_length=256, x_axis='time', y_axis='linear',
                              norm=Normalize(vmin=-5, vmax=0))
     plt.colorbar(format='%+2.0f dB')
-    plt.xlim(0, 5)
+    # plt.xlim(0, 2)
     plt.savefig(f'{path}.png')
 
 
 if __name__ == '__main__':
     fix_seed(42)
+
+    sr = 24000
+    fft = Audio2Mel(sampling_rate=sr)
+    wav, sr = librosa.load('../datasets/kiritan-no7/kiritan/test/47.wav', sr=sr, mono=True, dtype=np.float64)
+    wav, _ = librosa.effects.trim(wav, top_db=15)  # 音声ファイルの前後の無音区間のトリミング(閾値=15dB)
+    sf.write(f'kiritan_24k.wav', wav, 24000, subtype='PCM_24')
+    data_t = torch.from_numpy(wav).float().unsqueeze(0)
+    log_melsp = fft(data_t)
+    wav = wav_from_melsp(log_melsp)
+    import soundfile as sf
+    sf.write(f'kiritan_24k_rec.wav', wav, 24000, subtype='PCM_24')
