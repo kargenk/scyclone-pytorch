@@ -1,3 +1,4 @@
+import argparse
 import os
 
 import torch
@@ -44,17 +45,23 @@ def log(logger: object, log_dict: dict, i: int):
 
 if __name__ == '__main__':
     fix_seed(42)
-    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
-    exp_name = '0225_kiritan-no7_16k_editlog'
+    device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
+    exp_name = '0317_kiritan-no7_b1024_for24kHz_usepretrain'
+
+    # コマンドライン引数の受け取り
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--resume_iter', type=int, help='iteration of pretrained model.')
+    parser.add_argument('--weights_dir', help='weights directory path')
+    args = parser.parse_args()
 
     # データローダーの作成
-    kiritan_to_no7_dataset = LogMelspDataset(source_dir='data/processed_logmel_kiritan-no7_16k/kiritan/train/',
-                                             target_dir='data/processed_logmel_kiritan-no7_16k/no7/train/')
+    kiritan_to_no7_dataset = LogMelspDataset(source_dir='data/processed_logmel_kiritan-no7_24k/kiritan/train/',
+                                             target_dir='data/processed_logmel_kiritan-no7_24k/no7/train/')
     print(f'kiritan to no7: {len(kiritan_to_no7_dataset)}')
 
     # データローダーの作成
     train_loader = DataLoader(kiritan_to_no7_dataset,
-                              batch_size=512,   # バッチサイズ
+                              batch_size=1024,  # バッチサイズ
                               shuffle=True,     # データシャッフル
                               num_workers=2,    # 高速化
                               pin_memory=True,  # 高速化
@@ -65,11 +72,13 @@ if __name__ == '__main__':
 
     # モデル，最適化アルゴリズム，スケジューラ，TensorBoardの設定
     model = Scyclone()
+    if args.resume_iter:
+        model.restore_models(i=args.resume_iter, weights_dir=args.weights_dir)
     model.configure_optimizers()
     logger = Logger(os.path.join(exp_name, 'outputs', 'logs'))
 
     # 訓練の実行
-    epoch = 30000
+    epoch = 300000
     for epoch in tqdm(range(1, epoch + 1)):
         running_dloss_dict = {}
         running_gloss_dict = {}
@@ -108,6 +117,6 @@ if __name__ == '__main__':
         log(logger, running_gloss_dict, epoch)
 
         # モデルとOptimizerの保存
-        if epoch % 1000 == 0:
+        if epoch % 10000 == 0:
             model.save_models(epoch, os.path.join(exp_name, 'models'))
             model.save_optims(epoch, os.path.join(exp_name, 'optims'))
