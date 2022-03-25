@@ -140,16 +140,16 @@ class Scyclone(nn.Module):
         torch.save(self.optim_D.state_dict(), optim_D_path)
         print(f'Save optimizer checkpoints into {save_dir}...')
 
-    def restore_models(self, i: int, weights_dir: str) -> None:
+    def restore_models(self, i: int, weights_dir: str, map_location = torch.device('cpu')) -> None:
         print(f'Loading the trained models from step {i} ...')
         G_A2B_path = os.path.join(weights_dir, f'{i}-G_A2B.pt')
         G_B2A_path = os.path.join(weights_dir, f'{i}-G_B2A.pt')
         D_A_path = os.path.join(weights_dir, f'{i}-D_A.pt')
         D_B_path = os.path.join(weights_dir, f'{i}-D_B.pt')
-        self.G_A2B.load_state_dict(torch.load(G_A2B_path))
-        self.G_B2A.load_state_dict(torch.load(G_B2A_path))
-        self.D_A.load_state_dict(torch.load(D_A_path))
-        self.D_B.load_state_dict(torch.load(D_B_path))
+        self.G_A2B.load_state_dict(torch.load(G_A2B_path, map_location=map_location))
+        self.G_B2A.load_state_dict(torch.load(G_B2A_path, map_location=map_location))
+        self.D_A.load_state_dict(torch.load(D_A_path, map_location=map_location))
+        self.D_B.load_state_dict(torch.load(D_B_path, map_location=map_location))
         print('Loaded all models.')
 
     def train_g(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> dict:
