@@ -45,22 +45,26 @@ def log(logger: object, log_dict: dict, i: int):
 
 if __name__ == '__main__':
     fix_seed(42)
-    device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
-    exp_name = '0317_kiritan-no7_b1024_for24kHz_usepretrain'
 
     # コマンドライン引数の受け取り
     parser = argparse.ArgumentParser()
+    parser.add_argument('exp_name', help='experience name', default='MMDD_dataset_batch_option')
+    parser.add_argument('--source', help='source directory path', default='data/processed_logmel_kiritan-no7_24k/kiritan/train/')
+    parser.add_argument('--target', help='target directory path', default='data/processed_logmel_kiritan-no7_24k/no7/train/')
+    parser.add_argument('--device', help='use GPU number', default='0')
     parser.add_argument('--resume_iter', type=int, help='iteration of pretrained model.')
     parser.add_argument('--weights_dir', help='weights directory path')
     args = parser.parse_args()
 
-    # データローダーの作成
-    kiritan_to_no7_dataset = LogMelspDataset(source_dir='data/processed_logmel_kiritan-no7_24k/kiritan/train/',
-                                             target_dir='data/processed_logmel_kiritan-no7_24k/no7/train/')
-    print(f'kiritan to no7: {len(kiritan_to_no7_dataset)}')
+    device = torch.device(f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu')
 
     # データローダーの作成
-    train_loader = DataLoader(kiritan_to_no7_dataset,
+    dataset = LogMelspDataset(source_dir=args.source,
+                                             target_dir=args.target)
+    print(f'source to target: {len(dataset)}')
+
+    # データローダーの作成
+    train_loader = DataLoader(dataset,
                               batch_size=1024,  # バッチサイズ
                               shuffle=True,     # データシャッフル
                               num_workers=2,    # 高速化
@@ -71,11 +75,11 @@ if __name__ == '__main__':
     print(f'iteration size: {len(train_loader)}')
 
     # モデル，最適化アルゴリズム，スケジューラ，TensorBoardの設定
-    model = Scyclone()
+    model = Scyclone(device=device)
     if args.resume_iter:
         model.restore_models(i=args.resume_iter, weights_dir=args.weights_dir)
     model.configure_optimizers()
-    logger = Logger(os.path.join(exp_name, 'outputs', 'logs'))
+    logger = Logger(os.path.join(args.exp_name, 'outputs', 'logs'))
 
     # 訓練の実行
     epoch = 300000

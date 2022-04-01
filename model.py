@@ -43,7 +43,6 @@ class ResidualSN(nn.Module):
 class Generator(nn.Module):
     def __init__(self, num_resblocks: int = 7) -> None:
         super().__init__()
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
         self.input_layer = nn.Sequential(
             nn.Conv1d(80, 256, kernel_size=1, stride=1),
@@ -68,7 +67,6 @@ class Generator(nn.Module):
 class Discriminator(nn.Module):
     def __init__(self, num_resblocks: int = 6) -> None:
         super().__init__()
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.noise_sigma = 0.01
 
         self.input_layer = nn.Sequential(
@@ -87,7 +85,7 @@ class Discriminator(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # 不安定さを解決するために入力にN(0, 0.01)のガウシアンノイズを加える(論文より)
-        x_noised = x + torch.randn(x.size(), device=self.device) * self.noise_sigma
+        x_noised = x + torch.randn(x.size(), device=x.device) * self.noise_sigma
         _x = self.input_layer(x_noised)
         _x = self.res_layer(_x)
         out = self.output_layer(_x)
@@ -95,9 +93,9 @@ class Discriminator(nn.Module):
 
 
 class Scyclone(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, device) -> None:
         super().__init__()
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.device = device
         # モデル
         self.G_A2B = Generator(num_resblocks=7).to(self.device)
         self.G_B2A = Generator(num_resblocks=7).to(self.device)
