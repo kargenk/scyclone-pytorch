@@ -43,7 +43,6 @@ class ResidualSN(nn.Module):
 class Generator(nn.Module):
     def __init__(self, num_resblocks: int = 7) -> None:
         super().__init__()
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
         self.input_layer = nn.Sequential(
             nn.Conv1d(80, 256, kernel_size=1, stride=1),
@@ -68,7 +67,6 @@ class Generator(nn.Module):
 class Discriminator(nn.Module):
     def __init__(self, num_resblocks: int = 6) -> None:
         super().__init__()
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.noise_sigma = 0.01
 
         self.input_layer = nn.Sequential(
@@ -87,7 +85,7 @@ class Discriminator(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # 不安定さを解決するために入力にN(0, 0.01)のガウシアンノイズを加える(論文より)
-        x_noised = x + torch.randn(x.size(), device=self.device) * self.noise_sigma
+        x_noised = x + torch.randn(x.size(), device=x.device) * self.noise_sigma
         _x = self.input_layer(x_noised)
         _x = self.res_layer(_x)
         out = self.output_layer(_x)
@@ -95,9 +93,9 @@ class Discriminator(nn.Module):
 
 
 class Scyclone(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, device) -> None:
         super().__init__()
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.device = device
         # モデル
         self.G_A2B = Generator(num_resblocks=7).to(self.device)
         self.G_B2A = Generator(num_resblocks=7).to(self.device)
@@ -113,7 +111,7 @@ class Scyclone(nn.Module):
         self.hinge_offset_for_D = 0.5
 
         # 学習率
-        self.learning_rate = 2.0 * 1e-4
+        self.learning_rate = 2.0 * 1e-4  # default: 2.0 * 1e-4
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.G_A2B(x)
@@ -140,16 +138,16 @@ class Scyclone(nn.Module):
         torch.save(self.optim_D.state_dict(), optim_D_path)
         print(f'Save optimizer checkpoints into {save_dir}...')
 
-    def restore_models(self, i: int, weights_dir: str) -> None:
+    def restore_models(self, i: int, weights_dir: str, map_location = torch.device('cpu')) -> None:
         print(f'Loading the trained models from step {i} ...')
         G_A2B_path = os.path.join(weights_dir, f'{i}-G_A2B.pt')
         G_B2A_path = os.path.join(weights_dir, f'{i}-G_B2A.pt')
         D_A_path = os.path.join(weights_dir, f'{i}-D_A.pt')
         D_B_path = os.path.join(weights_dir, f'{i}-D_B.pt')
-        self.G_A2B.load_state_dict(torch.load(G_A2B_path))
-        self.G_B2A.load_state_dict(torch.load(G_B2A_path))
-        self.D_A.load_state_dict(torch.load(D_A_path))
-        self.D_B.load_state_dict(torch.load(D_B_path))
+        self.G_A2B.load_state_dict(torch.load(G_A2B_path, map_location=map_location))
+        self.G_B2A.load_state_dict(torch.load(G_B2A_path, map_location=map_location))
+        self.D_A.load_state_dict(torch.load(D_A_path, map_location=map_location))
+        self.D_B.load_state_dict(torch.load(D_B_path, map_location=map_location))
         print('Loaded all models.')
 
     def train_g(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> dict:
@@ -218,7 +216,7 @@ class Scyclone(nn.Module):
             batch (Tuple[torch.Tensor, torch.Tensor]): 真の変換元データと真の変換先データのペア
 
         Returns:
-            dict: 損失の合計値と各損失を格納した辞書
+            dict: 損失の合計値と各損失, 全ての予測結果を格納した辞書
         """
         real_A, real_B = batch
 
@@ -243,7 +241,7 @@ class Scyclone(nn.Module):
         fake_B = self.G_A2B(real_A)
         pred_B_fake = self.D_B(torch.narrow(fake_B.detach(), 2, 16, 128))
         loss_D_B_fake = torch.mean(F.relu(m + pred_B_fake))
-        ### Total Loss
+        ### D_B Total Loss
         loss_D_B = loss_D_B_real + loss_D_B_fake
 
         # Total Loss
@@ -255,7 +253,17 @@ class Scyclone(nn.Module):
             'Discriminator/Loss/D_B': loss_D_B,
         }
 
-        out = {'loss': loss_D, 'log': log}
+        preds = {'pred_A_real': torch.sign(pred_A_real.squeeze()),
+                 'pred_A_fake': torch.sign(pred_A_fake.squeeze()),
+                 'pred_B_real': torch.sign(pred_B_real.squeeze()),
+                 'pred_B_fake': torch.sign(pred_B_fake.squeeze())}
+
+        # preds = {'pred_A_real': pred_A_real.squeeze(),
+        #          'pred_A_fake': pred_A_fake.squeeze(),
+        #          'pred_B_real': pred_B_real.squeeze(),
+        #          'pred_B_fake': pred_B_fake.squeeze()}
+
+        out = {'loss': loss_D, 'log': log, 'preds': preds}
 
         return out
 
@@ -298,7 +306,7 @@ if __name__ == '__main__':
     print(f'D output: {d_output.shape}')
 
     # Scyclone
-    S = Scyclone()
+    S = Scyclone(device=device)
     summary(S, input_size=(80, 160))
     # S.save_models(0, 'models')
     # S.restore_models(0, 'models')

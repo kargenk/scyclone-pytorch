@@ -61,7 +61,7 @@ def wav_to_melsp_file(dataset: str, sr: int, processed_filepath: str = './data/p
     """wavから対数メルスペクトログラムに変換する．"""
     CHUNK_SIZE = 1  # 一人当たりの曲数
     FRAMES = 160    # メルスペクトログラムのフレーム数
-    fft = Audio2Mel()
+    fft = Audio2Mel(sampling_rate=sr)
 
     # ファイルの探査
     shutil.rmtree(processed_filepath)
@@ -117,8 +117,8 @@ if __name__ == '__main__':
     and calculate the speech statistical characteristics.')
 
     parser.add_argument('--dataset', type=str, default=dataset_default,
-                        choices=['VCC2016', 'VCC2018', 'jvs'],
-                        help='Available datasets: VCC2016, VCC2018, and jvs (Default: VCC2016).')
+                        choices=['VCC2016', 'VCC2018', 'jvs', 'kiritan-no7'],
+                        help='Available datasets: VCC2016, VCC2018, jvs, and kiritan-no7 (Default: jvs).')
     parser.add_argument('--input_dir', type=str,
                         default=input_dir, help='Directory of input data.')
     parser.add_argument('--output_dir', type=str,
@@ -141,6 +141,8 @@ if __name__ == '__main__':
     elif argv.dataset == 'VCC2018':
         sample_rate = 22050
     elif argv.dataset == 'jvs':
+        sample_rate = 24000
+    elif argv.dataset == 'kiritan-no7':
         sample_rate = 24000
     else:
         print('unsupported dataset')
