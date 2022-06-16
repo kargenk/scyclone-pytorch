@@ -85,7 +85,7 @@ if __name__ == '__main__':
     # 訓練の実行
     is_d_train = True    # Dの訓練フラグ
     is_g_train = False   # Gの訓練フラグ
-    epoch = 300000
+    epoch = 500000
     for epoch in tqdm(range(1, epoch + 1)):
         running_dloss_dict = {}
         running_gloss_dict = {}
@@ -134,12 +134,23 @@ if __name__ == '__main__':
                 targets = torch.cat([targets, labels])
             acc = accuracy_score(targets.cpu().numpy(), preds.cpu().numpy())
 
-            if acc >= 0.8:
+            # D/Gいずれかのモデルが最適状態になった時にはフラグの切り替えとモデルの保存
+            if (acc >= 0.8 and is_d_train):
+                print('Switching D -> G')
                 is_d_train = False
                 is_g_train = True
-            elif acc <= 0.5:
+                if epoch >= 450000:
+                    model.save_models(epoch, os.path.join(args.exp_name, 'models', 'D_optimised'))
+                    # model.save_optims(epoch, os.path.join(args.exp_name, 'optims', 'D_optimized'))
+            elif (acc <= 0.5 and is_g_train):
+                print('Switching G -> D')
                 is_d_train = True
                 is_g_train = False
+                if epoch >= 450000:
+                    model.save_models(epoch, os.path.join(args.exp_name, 'models', 'G_optimized'))
+                    # model.save_optims(epoch, os.path.join(args.exp_name, 'optims', 'G_optimized'))
+            else:
+                print('keep learning ...')
 
         running_dloss_dict['Discriminator/accuracy'] = acc
         running_dloss_dict['Discriminator/isLearning'] = is_d_train
@@ -154,6 +165,7 @@ if __name__ == '__main__':
         log(logger, running_gloss_dict, epoch)
 
         # モデルとOptimizerの保存
-        if epoch % 10000 == 0:
-            model.save_models(epoch, os.path.join(args.exp_name, 'models'))
-            model.save_optims(epoch, os.path.join(args.exp_name, 'optims'))
+        if epoch % 50000 == 0:
+            model.save_models(epoch, os.path.join(args.exp_name, 'models', 'for_50k-epoch'))
+            model.save_optims(epoch, os.path.join(args.exp_name, 'models', 'for_50k-epoch'))
+            model.save_all(epoch, os.path.join(args.exp_name, 'models', 'for_50k-epoch'))

@@ -34,11 +34,11 @@ def clipping_power(melsp: torch.Tensor) -> torch.Tensor:
 
 
 if __name__ == '__main__':
-    # src = 'jvs037'
-    # trg = 'jvs015'
-    src = 'no7'
-    trg = 'pjs'
-    base_dir = f'0414_{src}-{trg}_b_24k'
+    src = 'jvs037'
+    trg = 'jvs015'
+    # src = 'no7'
+    # trg = 'pjs'
+    base_dir = f'0517_{src}-{trg}_b40_24k_switching'
     save_dir = os.path.join(base_dir, 'result')
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
@@ -49,7 +49,8 @@ if __name__ == '__main__':
 
     # log melspを抽出して160フレーム毎に分割
     # log_melsp = wav_to_log_melsp(f'../datasets/jvs_music/test_common/{src}/raw.wav', sr=sr)
-    log_melsp = wav_to_log_melsp(f'../datasets/kiritan-no7/no7/test/49.wav', sr=sr)
+    log_melsp = wav_to_log_melsp(f'../datasets/jvs_music/train_unique/{src}/raw.wav', sr=sr)
+    # log_melsp = wav_to_log_melsp(f'../datasets/kiritan-no7/no7/test/49.wav', sr=sr)
     splited = time_split(log_melsp, 160)
 
     # [N, 80, 160]に整形
@@ -69,7 +70,7 @@ if __name__ == '__main__':
 
     # 音声の保存
     data = wav_from_melsp(clipped)
-    sf.write(os.path.join(save_dir, f'{src}_to_{trg}_at{resume_iter}_rec_test.wav'),
+    sf.write(os.path.join(save_dir, f'{src}_to_{trg}_at{resume_iter}_rec_train.wav'),
              data, sr, subtype='PCM_24')
 
     # スペクトログラムの保存

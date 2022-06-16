@@ -116,6 +116,20 @@ class Scyclone(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.G_A2B(x)
 
+    def save_all(self, i: int, save_dir: str) -> None:
+        checkpoint = {
+            'D_A': self.D_A.state_dict(),
+            'D_B': self.D_B.state_dict(),
+            'G_A2B': self.G_A2B.state_dict(),
+            'G_B2A': self.G_B2A.state_dict(),
+            'optimi_D': self.optim_D.state_dict(),
+            'optimi_G': self.optim_G.state_dict(),
+            'scheduler_D': self.scheduler_D.state_dict(),
+            'scheduler_G': self.scheduler_G.state_dict(),
+        }
+        torch.save(checkpoint, os.path.join(save_dir, f'{i}_all.pt'))
+        print(f'Save model checkpoints into {save_dir}...')
+
     def save_models(self, i: int, save_dir: str) -> None:
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
