@@ -36,21 +36,26 @@ def clipping_power(melsp: torch.Tensor) -> torch.Tensor:
 if __name__ == '__main__':
     src = 'jvs037'
     trg = 'jvs015'
-    # src = 'no7'
-    # trg = 'pjs'
-    base_dir = f'0517_{src}-{trg}_b40_24k_switching'
-    save_dir = os.path.join(base_dir, 'result')
+    flag = 'test'
+    base_dir = f'0706_{src}-{trg}_b40_24k_amat_switching_lr2e-4'
+    checkpoint_dir = os.path.join(base_dir, 'models', 'for_50k-epoch')
+    save_dir = os.path.join(base_dir, 'result', flag)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
-    device = torch.device('cuda:4' if torch.cuda.is_available() else 'cpu')
-    resume_iter = 300000
+    device = torch.device('cuda:5' if torch.cuda.is_available() else 'cpu')
+    resume_iter = 100000
     sr = 24000
 
     # log melspを抽出して160フレーム毎に分割
-    # log_melsp = wav_to_log_melsp(f'../datasets/jvs_music/test_common/{src}/raw.wav', sr=sr)
-    log_melsp = wav_to_log_melsp(f'../datasets/jvs_music/train_unique/{src}/raw.wav', sr=sr)
-    # log_melsp = wav_to_log_melsp(f'../datasets/kiritan-no7/no7/test/49.wav', sr=sr)
+    if flag == 'train':
+        log_melsp = wav_to_log_melsp(f'../datasets/jvs_music/train_unique/{src}/raw.wav', sr=sr)
+        log_melsp_trg = wav_to_log_melsp(f'../datasets/jvs_music/train_unique/{trg}/raw.wav', sr=sr)
+    elif flag == 'test':
+        log_melsp = wav_to_log_melsp(f'../datasets/jvs_music/test_common/{src}/raw.wav', sr=sr)
+        log_melsp_trg = wav_to_log_melsp(f'../datasets/jvs_music/test_common/{trg}/raw.wav', sr=sr)
+    else:
+        ValueError
     splited = time_split(log_melsp, 160)
 
     # [N, 80, 160]に整形
@@ -58,7 +63,7 @@ if __name__ == '__main__':
 
     # 学習済みモデルの読み込み，log melspを変換
     model = Scyclone(device=device)
-    model.restore_models(resume_iter, os.path.join(base_dir, 'models'), map_location=device)
+    model.restore_all(resume_iter, checkpoint_dir, map_location=device)
     output = model(input_tensor)
 
     # バッチ次元をつなげて正しい時間軸に整形
@@ -70,11 +75,10 @@ if __name__ == '__main__':
 
     # 音声の保存
     data = wav_from_melsp(clipped)
-    sf.write(os.path.join(save_dir, f'{src}_to_{trg}_at{resume_iter}_rec_train.wav'),
+    sf.write(os.path.join(save_dir, f'{src}_to_{trg}_at{resume_iter}_rec_{flag}.wav'),
              data, sr, subtype='PCM_24')
 
     # スペクトログラムの保存
-    plot_melsp(log_melsp, sr=sr, path=os.path.join(save_dir, 'source_log_melsp'))  # source
-    # log_melsp_trg = wav_to_log_melsp(f'../datasets/jvs_music/test_common/{trg}/raw.wav')
-    # plot_melsp(log_melsp_trg, sr=24000, path=os.path.join(save_dir, 'target_log_melsp'))  # target
-    plot_melsp(clipped, sr=sr, path=os.path.join(save_dir, f'converted_log_melsp_{resume_iter}'))  # converted
+    plot_melsp(log_melsp, sr=sr, path=os.path.join(save_dir, f'source_log_melsp_{flag}'))  # source
+    plot_melsp(log_melsp_trg, sr=24000, path=os.path.join(save_dir, f'target_log_melsp_{flag}'))  # target
+    plot_melsp(clipped, sr=sr, path=os.path.join(save_dir, f'converted_log_melsp_{resume_iter}_{flag}'))  # converted

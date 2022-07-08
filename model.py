@@ -2,6 +2,7 @@ import itertools
 import os
 from typing import Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -97,10 +98,13 @@ class Scyclone(nn.Module):
         super().__init__()
         self.device = device
         # モデル
+        self.num_d = 3
         self.G_A2B = Generator(num_resblocks=7).to(self.device)
         self.G_B2A = Generator(num_resblocks=7).to(self.device)
-        self.D_A = Discriminator(num_resblocks=6).to(self.device)
-        self.D_B = Discriminator(num_resblocks=6).to(self.device)
+        self.multi_D_A, self.multi_D_B = [], []
+        for _ in range(self.num_d):
+            self.multi_D_A.append(Discriminator(num_resblocks=6).to(self.device))
+            self.multi_D_B.append(Discriminator(num_resblocks=6).to(self.device))
 
         # 損失の係数
         self.weight_cycle = 10
@@ -113,56 +117,56 @@ class Scyclone(nn.Module):
         # 学習率
         self.learning_rate = 2.0 * 1e-4  # default: 2.0 * 1e-4
 
+        self.configure_optimizers()
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.G_A2B(x)
 
     def save_all(self, i: int, save_dir: str) -> None:
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
         checkpoint = {
-            'D_A': self.D_A.state_dict(),
-            'D_B': self.D_B.state_dict(),
+            'D_A_0': self.multi_D_A[0].state_dict(),
+            'D_A_1': self.multi_D_A[1].state_dict(),
+            'D_A_2': self.multi_D_A[2].state_dict(),
+            'D_B_0': self.multi_D_B[0].state_dict(),
+            'D_B_1': self.multi_D_B[1].state_dict(),
+            'D_B_2': self.multi_D_B[2].state_dict(),
             'G_A2B': self.G_A2B.state_dict(),
             'G_B2A': self.G_B2A.state_dict(),
-            'optimi_D': self.optim_D.state_dict(),
-            'optimi_G': self.optim_G.state_dict(),
-            'scheduler_D': self.scheduler_D.state_dict(),
+            'optim_D_A_0': self.multi_optim_D_A[0].state_dict(),
+            'optim_D_A_1': self.multi_optim_D_A[1].state_dict(),
+            'optim_D_A_2': self.multi_optim_D_A[2].state_dict(),
+            'optim_D_B_0': self.multi_optim_D_B[0].state_dict(),
+            'optim_D_B_1': self.multi_optim_D_B[1].state_dict(),
+            'optim_D_B_2': self.multi_optim_D_B[2].state_dict(),
+            'optim_G': self.optim_G.state_dict(),
+            'scheduler_D_A_0': self.multi_scheduler_D_A[0].state_dict(),
+            'scheduler_D_A_1': self.multi_scheduler_D_A[1].state_dict(),
+            'scheduler_D_A_2': self.multi_scheduler_D_A[2].state_dict(),
+            'scheduler_D_B_0': self.multi_scheduler_D_B[0].state_dict(),
+            'scheduler_D_B_1': self.multi_scheduler_D_B[1].state_dict(),
+            'scheduler_D_B_2': self.multi_scheduler_D_B[2].state_dict(),
             'scheduler_G': self.scheduler_G.state_dict(),
         }
         torch.save(checkpoint, os.path.join(save_dir, f'{i}_all.pt'))
         print(f'Save model checkpoints into {save_dir}...')
 
-    def save_models(self, i: int, save_dir: str) -> None:
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-        G_A2B_path = os.path.join(save_dir, f'{i}-G_A2B.pt')
-        G_B2A_path = os.path.join(save_dir, f'{i}-G_B2A.pt')
-        D_A_path = os.path.join(save_dir, f'{i}-D_A.pt')
-        D_B_path = os.path.join(save_dir, f'{i}-D_B.pt')
-        torch.save(self.G_A2B.state_dict(), G_A2B_path)
-        torch.save(self.G_B2A.state_dict(), G_B2A_path)
-        torch.save(self.D_A.state_dict(), D_A_path)
-        torch.save(self.D_B.state_dict(), D_B_path)
-        print(f'Save model checkpoints into {save_dir}...')
-
-    def save_optims(self, i: int, save_dir: str) -> None:
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-        optim_G_path = os.path.join(save_dir, f'{i}-optim_G.pt')
-        optim_D_path = os.path.join(save_dir, f'{i}-optim_D.pt')
-        torch.save(self.optim_G.state_dict(), optim_G_path)
-        torch.save(self.optim_D.state_dict(), optim_D_path)
-        print(f'Save optimizer checkpoints into {save_dir}...')
-
-    def restore_models(self, i: int, weights_dir: str, map_location = torch.device('cpu')) -> None:
-        print(f'Loading the trained models from step {i} ...')
-        G_A2B_path = os.path.join(weights_dir, f'{i}-G_A2B.pt')
-        G_B2A_path = os.path.join(weights_dir, f'{i}-G_B2A.pt')
-        D_A_path = os.path.join(weights_dir, f'{i}-D_A.pt')
-        D_B_path = os.path.join(weights_dir, f'{i}-D_B.pt')
-        self.G_A2B.load_state_dict(torch.load(G_A2B_path, map_location=map_location))
-        self.G_B2A.load_state_dict(torch.load(G_B2A_path, map_location=map_location))
-        self.D_A.load_state_dict(torch.load(D_A_path, map_location=map_location))
-        self.D_B.load_state_dict(torch.load(D_B_path, map_location=map_location))
-        print('Loaded all models.')
+    def restore_all(self, i: int, checkpoint_dir: str, map_location = torch.device('cpu')) -> None:
+        print(f'Loading the all conditions on epoch {i} ...')
+        checkpoint = torch.load(os.path.join(checkpoint_dir, f'{i}_all.pt'), map_location=map_location)
+        self.G_A2B.load_state_dict(checkpoint['G_A2B'])
+        self.G_B2A.load_state_dict(checkpoint['G_B2A'])
+        self.optim_G.load_state_dict(checkpoint['optim_G'])
+        self.scheduler_G.load_state_dict(checkpoint['scheduler_G'])
+        for idx in range(self.num_d):
+            self.multi_D_A[idx].load_state_dict(checkpoint[f'D_A_{idx}'])
+            self.multi_D_B[idx].load_state_dict(checkpoint[f'D_B_{idx}'])
+            self.multi_optim_D_A[idx].load_state_dict(checkpoint[f'optim_D_A_{idx}'])
+            self.multi_optim_D_B[idx].load_state_dict(checkpoint[f'optim_D_B_{idx}'])
+            self.multi_scheduler_D_A[idx].load_state_dict(checkpoint[f'scheduler_D_A_{idx}'])
+            self.multi_scheduler_D_B[idx].load_state_dict(checkpoint[f'scheduler_D_B_{idx}'])
+        print(f'Successfully Loading.')
 
     def train_g(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> dict:
         """
@@ -177,13 +181,49 @@ class Scyclone(nn.Module):
         real_A, real_B = batch
 
         # Adversarial Loss (Hinge Loss)
-        fake_B = self.G_A2B(real_A)
-        pred_fake_B = self.D_B(torch.narrow(fake_B, 2, 16, 128))
-        loss_adv_G_A2B = torch.mean(F.relu(-1.0 * pred_fake_B))
-
+        pred_A_fakes, pred_B_fakes = [], []
         fake_A = self.G_B2A(real_B)
-        pred_fake_A = self.D_A(torch.narrow(fake_A, 2, 16, 128))
-        loss_adv_G_B2A = torch.mean(F.relu(-1.0 * pred_fake_A))
+        fake_B = self.G_A2B(real_A)
+        lit_A = np.zeros(self.num_d)
+        lit_B = np.zeros(self.num_d)
+        for i in range(self.num_d):
+            # Dの勾配情報は保持しないようにする
+            for p_A, p_B in zip(self.multi_D_A[i].parameters(), self.multi_D_B[i].parameters()):
+                p_A.requires_grad = False
+                p_B.requires_grad = False
+            pred_A_fake = self.multi_D_A[i](torch.narrow(fake_A, 2, 16, 128))
+            pred_A_fakes.append(pred_A_fake)
+            lit_A[i] = torch.sum(pred_A_fake).item()
+            pred_B_fake = self.multi_D_B[i](torch.narrow(fake_B, 2, 16, 128))
+            pred_B_fakes.append(pred_B_fake)
+            lit_B[i] = torch.sum(pred_B_fake).item()
+
+        # 再重み付け
+        loss_sort_A = np.argsort(lit_A)
+        weights_A = np.random.dirichlet(np.ones(self.num_d))
+        weights_A = np.sort(weights_A)[::-1]
+        loss_sort_B = np.argsort(lit_B)
+        weights_B = np.random.dirichlet(np.ones(self.num_d))
+        weights_B = np.sort(weights_B)[::-1]
+
+        is_empty_A, is_empty_B = True, True
+        # D_A
+        for i in range(len(pred_A_fakes)):
+            if is_empty_A == True:
+                critic_fake_A = weights_A[i] * pred_A_fakes[loss_sort_A[i]]
+                is_empty_A = False
+            else:
+                critic_fake_A = torch.add(critic_fake_A, weights_A[i] * pred_A_fakes[loss_sort_A[i]])
+        loss_adv_G_B2A = torch.mean(F.relu(-1.0 * critic_fake_A))
+
+        # D_B
+        for i in range(len(pred_B_fakes)):
+            if is_empty_B == True:
+                critic_fake_B = weights_B[i] * pred_B_fakes[loss_sort_B[i]]
+                is_empty_B = False
+            else:
+                critic_fake_B = torch.add(critic_fake_B, weights_B[i] * pred_B_fakes[loss_sort_B[i]])
+        loss_adv_G_A2B = torch.mean(F.relu(-1.0 * critic_fake_B))
 
         # Cycle Consistency Loss (L1 Loss)
         cycled_A = self.G_B2A(fake_B)
@@ -231,53 +271,114 @@ class Scyclone(nn.Module):
 
         Returns:
             dict: 損失の合計値と各損失, 全ての予測結果を格納した辞書
+            dict: 各クラス(A, B)における優秀なDiscriminatorのidを格納した辞書
         """
+        for i in range(self.num_d):
+            self.multi_D_A[i].train()
+            self.multi_D_B[i].train()
+            for p_A, p_B in zip(self.multi_D_A[i].parameters(), self.multi_D_B[i].parameters()):
+                p_A.requires_grad = True
+                p_B.requires_grad = True
+
         real_A, real_B = batch
 
         # Adversarial Loss (Hinge Loss)
         m = self.hinge_offset_for_D
-        ## D_A
-        ### Real Loss
-        pred_A_real = self.D_A(torch.narrow(real_A, 2, 16, 128))
-        loss_D_A_real = torch.mean(F.relu(m - pred_A_real))
-        ### Fake Loss
-        fake_A = self.G_B2A(real_B)
-        pred_A_fake = self.D_A(torch.narrow(fake_A.detach(), 2, 16, 128))
-        loss_D_A_fake = torch.mean(F.relu(m + pred_A_fake))
-        ### D_A Total Loss
-        loss_D_A = loss_D_A_real + loss_D_A_fake
 
-        ## D_B
-        ### Real Loss
-        pred_B_real = self.D_B(torch.narrow(real_B, 2, 16, 128))
-        loss_D_B_real = torch.mean(F.relu(m - pred_B_real))
-        ### Fake Loss
+        pred_A_fake, pred_A_real = None, None
+        pred_B_fake, pred_B_real = None, None
+        fake_A = self.G_B2A(real_B)
         fake_B = self.G_A2B(real_A)
-        pred_B_fake = self.D_B(torch.narrow(fake_B.detach(), 2, 16, 128))
-        loss_D_B_fake = torch.mean(F.relu(m + pred_B_fake))
-        ### D_B Total Loss
-        loss_D_B = loss_D_B_real + loss_D_B_fake
+
+        # 各Discriminatorからの出力をひとまとめにする[batch, num_d]
+        is_empty_A, is_empty_B = True, True
+        for i in range(self.num_d):
+            # D_A
+            if is_empty_A:
+                pred_A_fake = self.multi_D_A[i](torch.narrow(fake_A.detach(), 2, 16, 128)).unsqueeze(1)
+                pred_A_real = self.multi_D_A[i](torch.narrow(real_A, 2, 16, 128)).unsqueeze(1)
+                is_empty_A = False
+            else:
+                pred_A_fake = torch.cat((pred_A_fake, self.multi_D_A[i](torch.narrow(fake_A.detach(), 2, 16, 128)).unsqueeze(1)), axis=1)
+                pred_A_real = torch.cat((pred_A_real, self.multi_D_A[i](torch.narrow(real_A, 2, 16, 128)).unsqueeze(1)), axis=1)
+            # D_B
+            if is_empty_B:
+                pred_B_fake = self.multi_D_B[i](torch.narrow(fake_B.detach(), 2, 16, 128)).unsqueeze(1)
+                pred_B_real = self.multi_D_B[i](torch.narrow(real_B, 2, 16, 128)).unsqueeze(1)
+                is_empty_B = False
+            else:
+                pred_B_fake = torch.cat((pred_B_fake, self.multi_D_B[i](torch.narrow(fake_B.detach(), 2, 16, 128)).unsqueeze(1)), axis=1)
+                pred_B_real = torch.cat((pred_B_real, self.multi_D_B[i](torch.narrow(real_B, 2, 16, 128)).unsqueeze(1)), axis=1)
+
+        # 出力スコアが最も低い(fakeをfakeと正しく判定している)Discriminatorを選択
+        superior_A_idx = torch.argmin(pred_A_fake, dim=1)
+        mask_A = torch.zeros((real_A.size()[0], self.num_d)).to(self.device)
+        superior_B_idx = torch.argmin(pred_B_fake, dim=1)
+        mask_B = torch.zeros((real_B.size()[0], self.num_d)).to(self.device)
+
+        # 1バッチ毎にε:0.3で優秀なD, 1-εでランダムなD_Aを選択
+        for i in range(mask_A.size()[0]):
+            random_checker = np.random.randint(0, 10)
+            if random_checker > 7:
+                random_idx = np.random.randint(0, self.num_d)
+                mask_A[i][random_idx] = 1.0
+            else:
+                mask_A[i][superior_A_idx[i]] = 1.0
+
+        # 1バッチ毎にε:0.3で優秀なD, 1-εでランダムなD_Bを選択
+        for i in range(mask_B.size()[0]):
+            random_checker = np.random.randint(0, 10)
+            if random_checker > 7:
+                random_idx = np.random.randint(0, self.num_d)
+                mask_B[i][random_idx] = 1.0
+            else:
+                mask_B[i][superior_B_idx[i]] = 1.0
+
+        pred_A_fake = pred_A_fake.squeeze()
+        pred_A_real = pred_A_real.squeeze()
+        pred_A_fake_output = torch.sum(mask_A * pred_A_fake, dim=1)
+        pred_A_real_output = torch.sum(mask_A * pred_A_real, dim=1)
+
+        pred_B_fake = pred_B_fake.squeeze()
+        pred_B_real = pred_B_real.squeeze()
+        pred_B_fake_output = torch.sum(mask_B * pred_B_fake, dim=1)
+        pred_B_real_output = torch.sum(mask_B * pred_B_real, dim=1)
+
+        # D_A
+        loss_D_A_real = torch.mean(F.relu(m - pred_A_real_output))  # real loss
+        loss_D_A_fake = torch.mean(F.relu(m + pred_A_fake_output))  # fake loss
+        loss_D_A = loss_D_A_real + loss_D_A_fake  # D_A total
+
+        # D_B
+        loss_D_B_real = torch.mean(F.relu(m - pred_B_real_output))  # real loss
+        loss_D_B_fake = torch.mean(F.relu(m + pred_B_fake_output))  # fake loss
+        loss_D_B = loss_D_B_real + loss_D_B_fake  # D_B total
 
         # Total Loss
         loss_D = loss_D_A + loss_D_B
 
         log = {
-            'Discriminator/Loss/D_total': loss_D,
-            'Discriminator/Loss/D_A': loss_D_A,
-            'Discriminator/Loss/D_B': loss_D_B,
+            'Discriminator/Loss/D_selected_total': loss_D,
+            'Discriminator/Loss/D_A_selected': loss_D_A,
+            'Discriminator/Loss/D_B_selected': loss_D_B,
         }
 
-        preds = {'pred_A_real': torch.sign(pred_A_real.squeeze()),
-                 'pred_A_fake': torch.sign(pred_A_fake.squeeze()),
-                 'pred_B_real': torch.sign(pred_B_real.squeeze()),
-                 'pred_B_fake': torch.sign(pred_B_fake.squeeze())}
+        # preds = {'pred_A_real': torch.sign(pred_A_real_output.squeeze()),
+        #          'pred_A_fake': torch.sign(pred_A_fake_output.squeeze()),
+        #          'pred_B_real': torch.sign(pred_B_real_output.squeeze()),
+        #          'pred_B_fake': torch.sign(pred_B_fake_output.squeeze())}
 
-        # preds = {'pred_A_real': pred_A_real.squeeze(),
-        #          'pred_A_fake': pred_A_fake.squeeze(),
-        #          'pred_B_real': pred_B_real.squeeze(),
-        #          'pred_B_fake': pred_B_fake.squeeze()}
+        preds = {'pred_A_real': pred_A_real_output.squeeze(),
+                 'pred_A_fake': pred_A_fake_output.squeeze(),
+                 'pred_B_real': pred_B_real_output.squeeze(),
+                 'pred_B_fake': pred_B_fake_output.squeeze()}
 
-        out = {'loss': loss_D, 'log': log, 'preds': preds}
+        superior_idx = {
+            'A': superior_A_idx,
+            'B': superior_B_idx,
+        }
+
+        out = {'loss': loss_D, 'log': log, 'preds': preds}, superior_idx
 
         return out
 
@@ -294,12 +395,23 @@ class Scyclone(nn.Module):
         self.scheduler_G = StepLR(self.optim_G, decay_epoch, decay_rate)
 
         # Discriminatorの最適化関数とスケジューラ
-        self.optim_D = Adam(
-            itertools.chain(self.D_A.parameters(), self.D_B.parameters()),
-            lr=self.learning_rate,
-            betas=(0.5, 0.999),
-        )
-        self.scheduler_D = StepLR(self.optim_D, decay_epoch, decay_rate)
+        self.multi_optim_D_A, self.multi_scheduler_D_A = [], []
+        self.multi_optim_D_B, self.multi_scheduler_D_B = [], []
+        for idx in range(self.num_d):
+            self.multi_optim_D_A.append(
+                Adam(
+                    self.multi_D_A[idx].parameters(),
+                    lr=self.learning_rate,
+                    betas=(0.5, 0.999),)
+                )
+            self.multi_optim_D_B.append(
+                Adam(
+                    self.multi_D_B[idx].parameters(),
+                    lr=self.learning_rate,
+                    betas=(0.5, 0.999),)
+                )
+            self.multi_scheduler_D_A.append(StepLR(self.multi_optim_D_A[idx], decay_epoch, decay_rate))
+            self.multi_scheduler_D_B.append(StepLR(self.multi_optim_D_B[idx], decay_epoch, decay_rate))
 
 
 if __name__ == '__main__':
@@ -322,7 +434,8 @@ if __name__ == '__main__':
     # Scyclone
     S = Scyclone(device=device)
     summary(S, input_size=(80, 160))
-    # S.save_models(0, 'models')
+    S.save_all(765, 'test')
+    S.restore_all(765, 'test')
     # S.restore_models(0, 'models')
 
     # # モデルの概要
