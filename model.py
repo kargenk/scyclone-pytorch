@@ -6,9 +6,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchaudio
 from torch.optim import Adam
 from torch.optim.lr_scheduler import StepLR
 from torchsummary import summary
+
+from utils import wav_from_melsp
 
 
 class Residual(nn.Module):
@@ -105,6 +108,9 @@ class Scyclone(nn.Module):
         for _ in range(self.num_d):
             self.multi_D_A.append(Discriminator(num_resblocks=6).to(self.device))
             self.multi_D_B.append(Discriminator(num_resblocks=6).to(self.device))
+
+        # 補助損失用の音声認識モデル
+        self.asr_model = self.get_asr_model()
 
         # 損失の係数
         self.weight_cycle = 10
@@ -239,6 +245,21 @@ class Scyclone(nn.Module):
         identity_A = self.G_B2A(real_A)
         loss_identity_A = F.l1_loss(identity_A, real_A)
 
+        # ASR Loss (L1 Loss)
+        # 音声認識モデルを用いてその出力が同じ特徴になるように誘導して発話の明瞭性向上を図る
+        waveform_fake_A = torch.from_numpy(wav_from_melsp(fake_A))
+        waveform_fake_B = torch.from_numpy(wav_from_melsp(fake_B))
+        waveform_real_A = torch.from_numpy(wav_from_melsp(real_A))
+        waveform_real_B = torch.from_numpy(wav_from_melsp(real_B))
+        # まとめて計算できるようにバッチ方向で結合, [N, Time] -> [N * 4, Time]
+        waveforms = torch.cat([waveform_fake_A, waveform_fake_B,
+                               waveform_real_A, waveform_real_B], dim=0)
+        # 中間特徴量の抽出
+        with torch.inference_mode():
+            features, _ = self.asr_model.extract_features(waveforms.to(device))
+        fake_features, real_features = torch.split(features, 2)  # [N * 4, Time] -> 2 * [N * 2, Time]
+        loss_asr = F.l1_loss(fake_features.float(), real_features.float())
+
         # Total Loss
         loss_G = (
             loss_adv_G_A2B + loss_adv_G_B2A
@@ -246,6 +267,7 @@ class Scyclone(nn.Module):
             + self.weight_cycle * loss_cycle_BAB
             + self.weight_identity * loss_identity_A
             + self.weight_identity * loss_identity_B
+            + loss_asr
         )
 
         log = {
@@ -256,6 +278,7 @@ class Scyclone(nn.Module):
             'Generator/Loss/Cyc/B2A2B': loss_cycle_BAB,
             'Generator/Loss/Id/A2A': loss_identity_A,
             'Generator/Loss/Id/B2B': loss_identity_B,
+            'Generator/Loss/ASR': loss_asr,
         }
 
         out = {'loss': loss_G, 'log': log}
@@ -384,7 +407,7 @@ class Scyclone(nn.Module):
 
     def configure_optimizers(self) -> None:
         decay_rate = 0.5
-        decay_epoch = 50000
+        decay_epoch = 100000
 
         # Generatorの最適化関数とスケジューラ
         self.optim_G = Adam(
@@ -412,6 +435,16 @@ class Scyclone(nn.Module):
                 )
             self.multi_scheduler_D_A.append(StepLR(self.multi_optim_D_A[idx], decay_epoch, decay_rate))
             self.multi_scheduler_D_B.append(StepLR(self.multi_optim_D_B[idx], decay_epoch, decay_rate))
+
+    def get_asr_model(self):
+        model = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H.get_model()
+        model = model.to(self.device)
+
+        # 学習中に更新しないように重みを固定
+        for param in model.parameters():
+            param.requires_grad = False
+
+        return model
 
 
 if __name__ == '__main__':

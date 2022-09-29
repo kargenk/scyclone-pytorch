@@ -1,8 +1,8 @@
 import argparse
 import os
 
-from sklearn.metrics import accuracy_score
 import torch
+from sklearn.metrics import accuracy_score
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -155,13 +155,13 @@ if __name__ == '__main__':
                 print('Switching D -> G')
                 is_d_train = False
                 is_g_train = True
-                if epoch >= 450000:
+                if epoch >= 300000:
                     model.save_all(epoch, os.path.join(args.exp_name, 'models', 'D_optimised'))
             elif ((real_acc <= 0.5 or fake_acc <= 0.5) and is_g_train):
                 print('Switching G -> D')
                 is_d_train = True
                 is_g_train = False
-                if epoch >= 450000:
+                if epoch >= 300000:
                     model.save_all(epoch, os.path.join(args.exp_name, 'models', 'G_optimized'))
             else:
                 # print('keep learning ...')
