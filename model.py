@@ -112,6 +112,9 @@ class Scyclone(nn.Module):
         # 補助損失用の音声認識モデル
         self.asr_model = self.get_asr_model()
 
+        # メルスペクトログラムからの音声復元用のモデル
+        self.vocoder = torch.hub.load('descriptinc/melgan-neurips', 'load_melgan')
+
         # 損失の係数
         self.weight_cycle = 10
         self.weight_identity = 1
@@ -247,17 +250,18 @@ class Scyclone(nn.Module):
 
         # ASR Loss (L1 Loss)
         # 音声認識モデルを用いてその出力が同じ特徴になるように誘導して発話の明瞭性向上を図る
-        waveform_fake_A = torch.from_numpy(wav_from_melsp(fake_A))
-        waveform_fake_B = torch.from_numpy(wav_from_melsp(fake_B))
-        waveform_real_A = torch.from_numpy(wav_from_melsp(real_A))
-        waveform_real_B = torch.from_numpy(wav_from_melsp(real_B))
+        waveform_fake_A = torch.from_numpy(self.mel2wav(self.vocoder, fake_A))
+        waveform_fake_B = torch.from_numpy(self.mel2wav(self.vocoder, fake_B))
+        waveform_real_A = torch.from_numpy(self.mel2wav(self.vocoder, real_A))
+        waveform_real_B = torch.from_numpy(self.mel2wav(self.vocoder, real_B))
         # まとめて計算できるようにバッチ方向で結合, [N, Time] -> [N * 4, Time]
         waveforms = torch.cat([waveform_fake_A, waveform_fake_B,
                                waveform_real_A, waveform_real_B], dim=0)
         # 中間特徴量の抽出
         with torch.inference_mode():
-            features, _ = self.asr_model.extract_features(waveforms.to(device))
-        fake_features, real_features = torch.split(features, 2)  # [N * 4, Time] -> 2 * [N * 2, Time]
+            features, _ = self.asr_model.extract_features(waveforms.to(self.device))
+        last_feature = features[-1]  # 最終層の特徴だけ取り出し
+        fake_features, real_features = torch.split(last_feature, real_A.shape[0] * 2, dim=0)  # [N * 4, Time] -> 2 * [N * 2, Time]
         loss_asr = F.l1_loss(fake_features.float(), real_features.float())
 
         # Total Loss
@@ -445,6 +449,11 @@ class Scyclone(nn.Module):
             param.requires_grad = False
 
         return model
+
+
+    def mel2wav(self, vocoder, log_melsp):
+        audio = vocoder.inverse(log_melsp).squeeze().cpu().numpy()
+        return audio
 
 
 if __name__ == '__main__':
