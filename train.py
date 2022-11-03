@@ -66,7 +66,7 @@ if __name__ == '__main__':
 
     # データローダーの作成
     train_loader = DataLoader(dataset,
-                              batch_size=1024,  # バッチサイズ
+                              batch_size=8,  # バッチサイズ
                               shuffle=True,     # データシャッフル
                               num_workers=2,    # 高速化
                               pin_memory=True,  # 高速化
@@ -83,9 +83,9 @@ if __name__ == '__main__':
     logger = Logger(os.path.join(args.exp_name, 'outputs', 'logs'))
 
     # 訓練の実行
-    is_d_train = True    # Dの訓練フラグ
-    is_g_train = False   # Gの訓練フラグ
-    epoch = 500000
+    is_d_train = True   # Dの訓練フラグ
+    is_g_train = False  # Gの訓練フラグ
+    epoch = 100000
     for epoch in tqdm(range(1, epoch + 1)):
         logs_D, logs_G = {}, {}
         running_dloss_dict, running_gloss_dict = {}, {}
@@ -181,5 +181,5 @@ if __name__ == '__main__':
         log(logger, logs_G, epoch)
 
         # モデルとOptimizerの保存
-        if epoch % 50000 == 0:
-            model.save_all(epoch, os.path.join(args.exp_name, 'models', 'for_50k-epoch'))
+        if epoch % 500 == 0:
+            model.save_all(epoch, os.path.join(args.exp_name, 'models', 'for_500-epoch'))

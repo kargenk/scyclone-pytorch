@@ -100,6 +100,8 @@ class Scyclone(nn.Module):
     def __init__(self, device) -> None:
         super().__init__()
         self.device = device
+        self.asr_device = torch.device('cuda:1')
+        self.mel2wav_device = torch.device('cuda:1')
         # モデル
         self.num_d = 3
         self.G_A2B = Generator(num_resblocks=7).to(self.device)
@@ -113,11 +115,12 @@ class Scyclone(nn.Module):
         self.asr_model = self.get_asr_model()
 
         # メルスペクトログラムからの音声復元用のモデル
-        self.vocoder = torch.hub.load('descriptinc/melgan-neurips', 'load_melgan')
+        self.vocoder = self.get_vocoder()
 
         # 損失の係数
         self.weight_cycle = 10
         self.weight_identity = 1
+        self.weight_asr = 1
 
         # Hinge Lossのオフセット(SNGANは1.0, Scycloneは0.5)
         # ref: https://arxiv.org/abs/2005.03334 eq(2) m
@@ -250,19 +253,18 @@ class Scyclone(nn.Module):
 
         # ASR Loss (L1 Loss)
         # 音声認識モデルを用いてその出力が同じ特徴になるように誘導して発話の明瞭性向上を図る
-        waveform_fake_A = torch.from_numpy(self.mel2wav(self.vocoder, fake_A))
-        waveform_fake_B = torch.from_numpy(self.mel2wav(self.vocoder, fake_B))
-        waveform_real_A = torch.from_numpy(self.mel2wav(self.vocoder, real_A))
-        waveform_real_B = torch.from_numpy(self.mel2wav(self.vocoder, real_B))
+        waveform_fake_A = self.mel2wav(self.vocoder, fake_A)
+        waveform_fake_B = self.mel2wav(self.vocoder, fake_B)
+        waveform_real_A = self.mel2wav(self.vocoder, real_A)
+        waveform_real_B = self.mel2wav(self.vocoder, real_B)
         # まとめて計算できるようにバッチ方向で結合, [N, Time] -> [N * 4, Time]
         waveforms = torch.cat([waveform_fake_A, waveform_fake_B,
                                waveform_real_A, waveform_real_B], dim=0)
-        # 中間特徴量の抽出
-        with torch.inference_mode():
-            features, _ = self.asr_model.extract_features(waveforms.to(self.device))
-        last_feature = features[-1]  # 最終層の特徴だけ取り出し
-        fake_features, real_features = torch.split(last_feature, real_A.shape[0] * 2, dim=0)  # [N * 4, Time] -> 2 * [N * 2, Time]
-        loss_asr = F.l1_loss(fake_features.float(), real_features.float())
+        # 音素確率分布の抽出
+        emission, _ = self.asr_model(waveforms.to(self.asr_device))  # 出力は各クラスラベルのロジット
+        probs = F.softmax(emission, dim=-1)  # ロジットを確率に
+        fake_probs, real_probs = torch.split(probs, real_A.shape[0] * 2, dim=0)  # [N * 4, Time] -> 2 * [N * 2, Time]
+        loss_asr = F.cross_entropy(fake_probs, real_probs).to(self.device)
 
         # Total Loss
         loss_G = (
@@ -271,7 +273,7 @@ class Scyclone(nn.Module):
             + self.weight_cycle * loss_cycle_BAB
             + self.weight_identity * loss_identity_A
             + self.weight_identity * loss_identity_B
-            + loss_asr
+            + self.weight_asr * loss_asr
         )
 
         log = {
@@ -442,7 +444,7 @@ class Scyclone(nn.Module):
 
     def get_asr_model(self):
         model = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H.get_model()
-        model = model.to(self.device)
+        model = model.to(self.asr_device)
 
         # 学習中に更新しないように重みを固定
         for param in model.parameters():
@@ -450,9 +452,19 @@ class Scyclone(nn.Module):
 
         return model
 
+    def get_vocoder(self):
+        vocoder = torch.hub.load('descriptinc/melgan-neurips', 'load_melgan')
+        # 学習中に更新しないように重みを固定
+        for param in vocoder.mel2wav.parameters():
+            param.requires_grad = False
+        vocoder.mel2wav = vocoder.mel2wav.to(self.mel2wav_device)
+        vocoder.device = self.mel2wav_device
+        return vocoder
 
     def mel2wav(self, vocoder, log_melsp):
-        audio = vocoder.inverse(log_melsp).squeeze().cpu().numpy()
+        # inverseメソッド内部ではno_grad()を呼んでるので勾配情報が失われる
+        # audio = vocoder.inverse(log_melsp)
+        audio = vocoder.mel2wav(log_melsp.to(self.mel2wav_device)).squeeze(1)
         return audio
 
 
@@ -476,8 +488,8 @@ if __name__ == '__main__':
     # Scyclone
     S = Scyclone(device=device)
     summary(S, input_size=(80, 160))
-    S.save_all(765, 'test')
-    S.restore_all(765, 'test')
+    # S.save_all(765, 'test')
+    # S.restore_all(765, 'test')
     # S.restore_models(0, 'models')
 
     # # モデルの概要
